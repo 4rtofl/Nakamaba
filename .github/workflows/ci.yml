@@ -91,8 +91,11 @@ jobs:
           mask-aws-account-id: true
       # 公開リポジトリのログは誰でも読めるので、URL やリソース名を含む CDK の出力は失敗したときだけ出す
       - name: CDK でデプロイする
+        env:
+          PUBLIC_DOMAIN: ${{ secrets.PUBLIC_DOMAIN }}
+          PUBLIC_CERTIFICATE_ARN: ${{ secrets.PUBLIC_CERTIFICATE_ARN }}
         run: |
-          npx cdk deploy --require-approval never -c reservedConcurrency=none --outputs-file cdk-outputs.json > deploy.log 2>&1 || { cat deploy.log; exit 1; }
+          npx cdk deploy --require-approval never -c reservedConcurrency=none -c publicDomain="$PUBLIC_DOMAIN" -c publicCertificateArn="$PUBLIC_CERTIFICATE_ARN" --outputs-file cdk-outputs.json > deploy.log 2>&1 || { cat deploy.log; exit 1; }
           echo "デプロイしました。"
       - name: 公開側のトップと 404 を置き直す
         run: |

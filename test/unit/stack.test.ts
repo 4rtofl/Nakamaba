@@ -8,11 +8,13 @@ let template: Template;
 function synth(
   reservedConcurrency: number | undefined,
   githubRepository: string | undefined,
+  publicDomain?: { name: string; certificateArn: string },
 ): Template {
   const stack = new NakamabaStack(new App(), 'Test', {
     env: { region: 'ap-northeast-1', account: '111111111111' },
     reservedConcurrency,
     githubRepository,
+    publicDomain,
   });
   return Template.fromStack(stack);
 }
@@ -94,6 +96,32 @@ describe('CloudFront', () => {
         ],
       },
     });
+  });
+
+  it('独自ドメインを渡さなければ、cloudfront.net だけで配信する', () => {
+    const [distribution] = Object.values(template.findResources('AWS::CloudFront::Distribution'));
+    expect(distribution?.Properties.DistributionConfig.Aliases).toBeUndefined();
+    expect(distribution?.Properties.DistributionConfig.ViewerCertificate).toBeUndefined();
+  });
+
+  it('独自ドメインを渡すと、その名前と証明書で配信し、公開の URL もその名前にする', () => {
+    const certificateArn = 'arn:aws:acm:us-east-1:111111111111:certificate/test';
+    const withDomain = synth(5, 'owner/repo', { name: 'pages.example.com', certificateArn });
+    withDomain.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: {
+        Aliases: ['pages.example.com'],
+        ViewerCertificate: Match.objectLike({
+          AcmCertificateArn: certificateArn,
+          SslSupportMethod: 'sni-only',
+        }),
+      },
+    });
+    withDomain.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: {
+        Variables: Match.objectLike({ PUBLIC_BASE_URL: 'https://pages.example.com' }),
+      },
+    });
+    withDomain.hasOutput('PublicUrl', { Value: 'https://pages.example.com' });
   });
 
   it('書き換えの関数は JavaScript runtime 2.0 で動く', () => {

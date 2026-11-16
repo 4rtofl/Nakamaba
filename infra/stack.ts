@@ -2,6 +2,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   Aws,
+  aws_certificatemanager as acm,
   CfnOutput,
   aws_cloudfront as cloudfront,
   Duration,
@@ -25,6 +26,8 @@ export interface NakamabaStackProps extends StackProps {
   reservedConcurrency?: number | undefined;
   /** main への push でデプロイする GitHub のリポジトリ。OIDC の sub の `repo:` に続く表記。undefined なら CD のロールを作らない。 */
   githubRepository?: string | undefined;
+  /** 公開ページに使う独自ドメインと、us-east-1 にあるその ACM 証明書の ARN。undefined なら cloudfront.net だけで配信する。 */
+  publicDomain?: { name: string; certificateArn: string } | undefined;
 }
 
 export class NakamabaStack extends Stack {
@@ -80,8 +83,17 @@ export class NakamabaStack extends Stack {
       runtime: cloudfront.FunctionRuntime.JS_2_0,
     });
 
+    const publicDomain = props.publicDomain;
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
       comment: 'Nakamaba public pages',
+      ...(publicDomain && {
+        domainNames: [publicDomain.name],
+        certificate: acm.Certificate.fromCertificateArn(
+          this,
+          'PublicCertificate',
+          publicDomain.certificateArn,
+        ),
+      }),
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(siteBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -103,6 +115,7 @@ export class NakamabaStack extends Stack {
         },
       ],
     });
+    const publicBaseUrl = `https://${publicDomain?.name ?? distribution.distributionDomainName}`;
 
     const app = new nodejs.NodejsFunction(this, 'AppFunction', {
       entry: join(ROOT, 'src/app/handler.ts'),
@@ -121,7 +134,7 @@ export class NakamabaStack extends Stack {
         SITE_BUCKET: siteBucket.bucketName,
         UPLOAD_BUCKET: uploadBucket.bucketName,
         DISTRIBUTION_ID: distribution.distributionId,
-        PUBLIC_BASE_URL: `https://${distribution.distributionDomainName}`,
+        PUBLIC_BASE_URL: publicBaseUrl,
         UPLOAD_ORIGIN: `https://${uploadBucket.bucketRegionalDomainName}`,
         PARAMETER_PREFIX,
       },
@@ -170,9 +183,7 @@ export class NakamabaStack extends Stack {
       }),
     );
 
-    new CfnOutput(this, 'PublicUrl', {
-      value: `https://${distribution.distributionDomainName}`,
-    });
+    new CfnOutput(this, 'PublicUrl', { value: publicBaseUrl });
     new CfnOutput(this, 'AdminUrl', { value: appUrl.url });
     new CfnOutput(this, 'UsersTableName', { value: usersTable.tableName });
     new CfnOutput(this, 'PagesTableName', { value: pagesTable.tableName });
