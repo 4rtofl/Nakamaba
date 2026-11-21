@@ -65,6 +65,11 @@ export interface PageStore {
   list(): Promise<Page[]>;
   /** 同じ名前の同時公開でも 1 人だけが通るよう、条件付きで書き込む */
   claim(claim: PageClaim): Promise<PageClaimResult>;
+  /**
+   * page を newName へ移す。newName が既にあるか、page が消されたか持ち主が変わっていれば
+   * 何もせず false を返す
+   */
+  rename(page: Page, newName: string): Promise<boolean>;
   delete(name: string): Promise<void>;
 }
 
@@ -88,6 +93,8 @@ export interface SiteFiles {
   put(key: string, body: Buffer | string, contentType: string): Promise<void>;
   list(prefix: string): Promise<string[]>;
   totalBytes(prefix: string): Promise<number>;
+  /** Content-Type を保ったまま写す */
+  copy(fromKey: string, toKey: string): Promise<void>;
   delete(keys: string[]): Promise<void>;
 }
 

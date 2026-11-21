@@ -340,6 +340,28 @@ describe('ページの API', () => {
     expect((await send(method, '/api/pages/p/redirect')).status).toBe(405);
   });
 
+  it('ページ名を変えられ、一覧に新しい名前と URL が出る', async () => {
+    await publish('alice', 'old');
+    const response = await send('PUT', '/api/pages/old/rename', { body: { newName: 'new' } });
+    expect(response.status).toBe(200);
+    expect(bodyOf(response).url).toBe('https://public.example.invalid/new/');
+    const [page] = bodyOf(await send('GET', '/api/pages')).pages;
+    expect(page).toMatchObject({ name: 'new', url: 'https://public.example.invalid/new/' });
+  });
+
+  it.each([
+    ['newName が無い', {}],
+    ['newName が数値', { newName: 1 }],
+  ])('名前の変更の本文: %s は 400 にする', async (_label, body) => {
+    await publish('alice', 'old');
+    expect((await send('PUT', '/api/pages/old/rename', { body })).status).toBe(400);
+    expect(world.pages.has('old')).toBe(true);
+  });
+
+  it.each(['GET', 'DELETE'])('%s /api/pages/p/rename は 405 にする', async (method) => {
+    expect((await send(method, '/api/pages/p/rename')).status).toBe(405);
+  });
+
   it('エンコードされたスラッシュでページ名を偽れない', async () => {
     const response = await send('PUT', '/api/pages/..%2Fetc', {
       body: { uploadId: TEST_UPLOAD_ID },
@@ -498,6 +520,7 @@ describe('エージェント用のトークン', () => {
     ['PUT', '/api/tokens'],
     ['DELETE', '/api/tokens/x'],
     ['PUT', '/api/pages/p/redirect'],
+    ['PUT', '/api/pages/p/rename'],
     ['PUT', '/api/pages/p/unknown'],
     ['GET', '/api/unknown'],
   ])('トークンでは %s %s を 403 にし、何も変えない', async (method, path) => {

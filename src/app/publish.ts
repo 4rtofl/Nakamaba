@@ -174,6 +174,66 @@ export async function publishRedirect(
   return placePage(deps, pageName, [index], claim);
 }
 
+/**
+ * ページ名を変える。ファイルを新しい名前へ写してから古い名前のファイルを消す。
+ * 古い URL は 404 になる
+ */
+export async function renamePage(
+  deps: Deps,
+  user: User,
+  pageName: string,
+  newName: string,
+): Promise<{ page: Page; url: string }> {
+  assertValidName(pageName);
+  assertValidName(newName);
+  if (newName === pageName) {
+    throw new HttpError(400, 'same_name', '今と同じページ名です。');
+  }
+  const page = await deps.pages.get(pageName);
+  if (!page) throw new HttpError(404, 'page_not_found', 'ページが見つかりません。');
+  if (!canModify(user, page)) {
+    throw new HttpError(
+      403,
+      'forbidden',
+      'このページの名前を変えられるのは、公開した人と Admin だけです。',
+    );
+  }
+  if (await deps.pages.get(newName)) {
+    throw new HttpError(
+      409,
+      'name_taken',
+      'この名前のページはすでにあります。別の名前にしてください。',
+    );
+  }
+  if (!(await deps.pages.rename(page, newName))) {
+    throw new HttpError(
+      409,
+      'rename_conflict',
+      'ほかの操作と重なったため、名前を変えられませんでした。もう一度試してください。',
+    );
+  }
+
+  const from = `${pageName}/`;
+  const to = `${newName}/`;
+  const keys = await deps.siteFiles.list(from);
+  try {
+    // 新しい URL を開いた人が途中のページを見ないよう、index.html は最後に写す
+    const ordered = [...keys].sort(
+      (a, b) => Number(a === `${from}index.html`) - Number(b === `${from}index.html`),
+    );
+    for (const key of ordered) await deps.siteFiles.copy(key, `${to}${key.slice(from.length)}`);
+  } catch (error) {
+    await deps.siteFiles.delete(await deps.siteFiles.list(to));
+    await deps.pages.rename({ ...page, name: newName }, pageName);
+    throw error;
+  }
+  await deps.siteFiles.delete(keys);
+
+  await writeStaticPages(deps);
+  await deps.cdn.invalidate([`/${pageName}/*`, `/${newName}/*`, '/index.html', '/']);
+  return { page: { ...page, name: newName }, url: pageUrl(deps, newName) };
+}
+
 /** ページのファイルを置き直し、トップを作り直して通知する。新規公開で置けなければ名前を解放する */
 async function placePage(
   deps: Deps,

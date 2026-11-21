@@ -29,9 +29,11 @@ describe('renderTopPage', () => {
     expect(html).toContain('1 ページ');
   });
 
-  it('リダイレクトのページは、移動先へ直接つなぎ、移動先のホスト名を出す', () => {
+  it('リダイレクトのページは、移動先を新しいタブで直接開き、移動先のホスト名を出す', () => {
     const html = renderTopPage([page({ redirectUrl: 'https://example.com/a?b=1&c=2' })]);
-    expect(html).toContain('href="https://example.com/a?b=1&amp;c=2"');
+    expect(html).toContain(
+      'href="https://example.com/a?b=1&amp;c=2" target="_blank" rel="noopener"',
+    );
     expect(html).not.toContain('href="/my-page/"');
     expect(html).toContain('alice ・ example.com ↗ ・ ');
   });

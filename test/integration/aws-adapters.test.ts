@@ -167,6 +167,25 @@ describe('PageStore（DynamoDB の条件付き書き込み）', () => {
     await expect(store.get('admin-edit')).resolves.toMatchObject({ owner: 'alice', title: '直す' });
   });
 
+  it('名前を移し、属性を保つ。新しい名前が既にあるか、読んだ後に更新されていれば何も変えない', async () => {
+    const store = createPageStore(documents, config.pagesTable);
+    await store.claim(claim({ name: 'rename-from', redirectUrl: 'https://example.com/' }));
+    await store.claim(claim({ name: 'rename-taken', actor: 'bob' }));
+    const page = await store.get('rename-from');
+    if (!page) throw new Error('ページがありません');
+
+    await expect(store.rename(page, 'rename-taken')).resolves.toBe(false);
+    await expect(store.get('rename-taken')).resolves.toMatchObject({ owner: 'bob' });
+    await expect(store.rename({ ...page, updatedAt: '2000-01-01' }, 'rename-to')).resolves.toBe(
+      false,
+    );
+    await expect(store.get('rename-to')).resolves.toBeNull();
+
+    await expect(store.rename(page, 'rename-to')).resolves.toBe(true);
+    await expect(store.get('rename-from')).resolves.toBeNull();
+    await expect(store.get('rename-to')).resolves.toEqual({ ...page, name: 'rename-to' });
+  });
+
   it('一覧に全件を返す（1 MB を超えてページングされても）', async () => {
     const store = createPageStore(documents, config.pagesTable);
     const padding = 'x'.repeat(100_000);
@@ -270,6 +289,19 @@ describe('SiteFiles（S3）', () => {
     await expect(files.list('jp/')).resolves.toEqual(['jp/画像 1.png']);
     await files.delete(['jp/画像 1.png']);
     await expect(files.list('jp/')).resolves.toEqual([]);
+  });
+
+  it('Content-Type と中身を保って写す。日本語・空白・記号のファイル名でも写せる', async () => {
+    const files = createSiteFiles(s3, config.siteBucket);
+    const from = 'copy-from/画像 1+a&b.png';
+    await files.put(from, Buffer.from([1, 2, 3]), 'image/png');
+    await files.copy(from, 'copy-to/画像 1+a&b.png');
+    const object = await s3.send(
+      new GetObjectCommand({ Bucket: config.siteBucket, Key: 'copy-to/画像 1+a&b.png' }),
+    );
+    expect(object.ContentType).toBe('image/png');
+    expect([...((await object.Body?.transformToByteArray()) ?? [])]).toEqual([1, 2, 3]);
+    await files.delete([from, 'copy-to/画像 1+a&b.png']);
   });
 
   it('1000 件を超えても全件を一覧して削除できる', async () => {

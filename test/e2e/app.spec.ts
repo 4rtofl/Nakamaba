@@ -187,7 +187,9 @@ test('管理画面からリダイレクトのページを公開でき、開く�
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto(publicOrigin);
-  await expect(page.locator(`a.card[href="${target}"]`)).toContainText('猫へ');
+  const card = page.locator(`a.card[href="${target}"]`);
+  await expect(card).toContainText('猫へ');
+  await expect(card).toHaveAttribute('target', '_blank');
 
   await page.goto(`${publicOrigin}/to-cats`);
   await expect(page.locator('#h')).toHaveText('猫');
@@ -195,6 +197,27 @@ test('管理画面からリダイレクトのページを公開でき、開く�
   await page.goBack();
   expect(new URL(page.url()).pathname).toBe('/');
   await context.close();
+});
+
+test('公開中のページ名を変えると、新しい URL で開け、古い URL は 404 になる', async () => {
+  await publishZip(alicePage, 'rename-me', [
+    { name: 'index.html', data: '<title>名前を変える</title><h1 id="h">中身</h1>' },
+  ]);
+  await expect(alicePage.locator('[data-page="rename-me"]')).toBeVisible();
+  alicePage.once('dialog', (dialog) => dialog.accept('renamed'));
+  await alicePage.getByRole('button', { name: 'rename-me の名前を変更' }).click();
+  await expect(alicePage.locator('#status')).toContainText(
+    '「rename-me」を「renamed」に変更しました',
+  );
+  await expect(alicePage.locator('[data-page="renamed"]')).toContainText('名前を変える');
+  await expect(alicePage.locator('[data-page="rename-me"]')).toHaveCount(0);
+
+  const { publicOrigin } = devState();
+  expect((await alicePage.request.get(`${publicOrigin}/rename-me/`)).status()).toBe(404);
+  const renamed = await alicePage.request.get(`${publicOrigin}/renamed/`);
+  expect(await renamed.text()).toContain('中身');
+  const top = await alicePage.request.get(`${publicOrigin}/`);
+  expect(await top.text()).toContain('href="/renamed/"');
 });
 
 test('公開側と管理画面でアイコンを取得できる', async ({ browser }) => {

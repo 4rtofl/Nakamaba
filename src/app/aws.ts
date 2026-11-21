@@ -1,7 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { CloudFrontClient, CreateInvalidationCommand } from '@aws-sdk/client-cloudfront';
-import { ConditionalCheckFailedException, DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
+  ConditionalCheckFailedException,
+  DynamoDBClient,
+  TransactionCanceledException,
+} from '@aws-sdk/client-dynamodb';
+import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
@@ -23,6 +28,7 @@ import {
   GetCommand,
   PutCommand,
   ScanCommand,
+  TransactWriteCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
@@ -201,6 +207,38 @@ export function createPageStore(documents: DynamoDBDocumentClient, tableName: st
         throw error;
       }
     },
+    async rename(page, newName) {
+      try {
+        await documents.send(
+          new TransactWriteCommand({
+            TransactItems: [
+              {
+                Put: {
+                  TableName: tableName,
+                  Item: { ...page, name: newName },
+                  ConditionExpression: 'attribute_not_exists(#name)',
+                  ExpressionAttributeNames: { '#name': 'name' },
+                },
+              },
+              {
+                // 読んだ後に上書きされていたら、古い内容で新しい名前を作らない
+                Delete: {
+                  TableName: tableName,
+                  Key: { name: page.name },
+                  ConditionExpression: '#owner = :owner AND updatedAt = :updatedAt',
+                  ExpressionAttributeNames: { '#owner': 'owner' },
+                  ExpressionAttributeValues: { ':owner': page.owner, ':updatedAt': page.updatedAt },
+                },
+              },
+            ],
+          }),
+        );
+        return true;
+      } catch (error) {
+        if (error instanceof TransactionCanceledException) return false;
+        throw error;
+      }
+    },
     async delete(name) {
       await documents.send(new DeleteCommand({ TableName: tableName, Key: { name } }));
     },
@@ -282,6 +320,15 @@ export function createSiteFiles(s3: S3Client, bucket: string): SiteFiles {
         token = result.NextContinuationToken;
       } while (token);
       return total;
+    },
+    async copy(fromKey, toKey) {
+      await s3.send(
+        new CopyObjectCommand({
+          Bucket: bucket,
+          Key: toKey,
+          CopySource: `${bucket}/${fromKey.split('/').map(encodeURIComponent).join('/')}`,
+        }),
+      );
     },
     async delete(keys) {
       for (let start = 0; start < keys.length; start += 1000) {

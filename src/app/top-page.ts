@@ -118,10 +118,12 @@ function renderCard(page: Page): string {
   const visual = page.hasThumbnail
     ? `<img class="thumb" src="${href}thumbnail.png" alt="" loading="lazy">`
     : `<div class="placeholder g${gradientIndex(page.name)}" aria-hidden="true">${escapeHtml(Array.from(page.title)[0] ?? '')}</div>`;
-  // 別のサイトへ移動させるページは、移動先へ直接つなぐ
-  const link = page.redirectUrl ?? href;
+  // 別のサイトへ移動させるページは、移動先を新しいタブで直接開く
+  const link = page.redirectUrl
+    ? `href="${escapeHtml(page.redirectUrl)}" target="_blank" rel="noopener"`
+    : `href="${href}"`;
   const site = page.redirectUrl ? ` ・ ${escapeHtml(new URL(page.redirectUrl).host)} ↗` : '';
-  return `<a class="card" href="${escapeHtml(link)}" data-created="${escapeHtml(page.createdAt)}" data-updated="${escapeHtml(page.updatedAt)}">
+  return `<a class="card" ${link} data-created="${escapeHtml(page.createdAt)}" data-updated="${escapeHtml(page.updatedAt)}">
 ${visual}
 <div class="body">
 <h2 class="title">${escapeHtml(page.title)}</h2>

@@ -85,6 +85,14 @@ export function createFakeWorld(overrides: Partial<Deps> = {}): FakeWorld {
         pages.set(claim.name, page);
         return { claimed: true, page, isNew: previous === undefined };
       },
+      rename: async (page, newName) => {
+        const current = pages.get(page.name);
+        if (pages.has(newName) || current?.owner !== page.owner) return false;
+        if (current.updatedAt !== page.updatedAt) return false;
+        pages.delete(page.name);
+        pages.set(newName, { ...current, name: newName });
+        return true;
+      },
       delete: async (name) => {
         pages.delete(name);
       },
@@ -115,6 +123,13 @@ export function createFakeWorld(overrides: Partial<Deps> = {}): FakeWorld {
         [...siteFiles.entries()]
           .filter(([key]) => key.startsWith(prefix))
           .reduce((sum, [, file]) => sum + file.body.length, 0),
+      copy: async (fromKey, toKey) => {
+        if (failSiteFilePut.key === toKey) throw new Error('S3 に書けません');
+        const file = siteFiles.get(fromKey);
+        if (!file) throw new Error(`no site file ${fromKey}`);
+        putOrder.push(toKey);
+        siteFiles.set(toKey, file);
+      },
       delete: async (keys) => {
         for (const key of keys) siteFiles.delete(key);
       },

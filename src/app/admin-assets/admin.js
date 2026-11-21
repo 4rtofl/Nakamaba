@@ -128,6 +128,23 @@ function renderPages(pages) {
     if (page.canModify) {
       actions.append(
         element('button', {
+          text: '名前を変更',
+          attrs: { type: 'button', 'aria-label': `${page.name} の名前を変更` },
+          onClick: guard(async () => {
+            const input = window.prompt(
+              `「${page.name}」の新しいページ名（英小文字・数字・ハイフン）。古い URL は開けなくなります。`,
+              page.name,
+            );
+            const newName = input?.trim();
+            if (!newName || newName === page.name) return;
+            const result = await api('PUT', `/api/pages/${encodeURIComponent(page.name)}/rename`, {
+              newName,
+            });
+            showStatus(`「${page.name}」を「${newName}」に変更しました: ${result.url}`);
+            await refreshPages();
+          }),
+        }),
+        element('button', {
           className: 'danger',
           text: '削除',
           attrs: { type: 'button', 'aria-label': `${page.name} を削除` },

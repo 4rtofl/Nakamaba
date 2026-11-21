@@ -9,7 +9,14 @@ import {
   json,
   respond,
 } from './http.ts';
-import { createUpload, deletePage, publishPage, publishRedirect, usedBytes } from './publish.ts';
+import {
+  createUpload,
+  deletePage,
+  publishPage,
+  publishRedirect,
+  renamePage,
+  usedBytes,
+} from './publish.ts';
 import { parseRedirectTitle, parseRedirectUrl } from './redirect-page.ts';
 import { issueToken, listTokens, revokeToken } from './tokens.ts';
 import {
@@ -111,6 +118,15 @@ async function routePages(
       parseRedirectTitle(body.title, name),
     );
     return json(result.isNew ? 201 : 200, result);
+  }
+  // TOKEN_ROUTES に無いので、トークンでは使えない
+  if (action === 'rename') {
+    if (request.method !== 'PUT') throw methodNotAllowed('PUT');
+    const { newName } = parseJsonBody(request.body);
+    if (typeof newName !== 'string') {
+      throw new HttpError(400, 'invalid_name', '新しいページ名が必要です。');
+    }
+    return json(200, await renamePage(deps, user, name, newName));
   }
   if (action !== undefined) throw notFound();
 

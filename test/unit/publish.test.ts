@@ -7,6 +7,7 @@ import {
   deletePage,
   publishPage,
   publishRedirect,
+  renamePage,
   writeStaticPages,
 } from '../../src/app/publish.ts';
 import { createFakeWorld, type FakeWorld, TEST_UPLOAD_ID } from '../support/fakes.ts';
@@ -298,6 +299,98 @@ describe('publishRedirect', () => {
 
   it('不正なページ名を拒否する', async () => {
     expect((await errorOf(redirectAs(alice, '../x'))).code).toBe('invalid_name');
+  });
+});
+
+describe('renamePage', () => {
+  const pageKeys = (name: string) =>
+    [...world.siteFiles.keys()].filter((key) => key.startsWith(`${name}/`)).sort();
+
+  it('ファイルを新しい名前へ写して古い名前のファイルを消し、ページ情報を移す', async () => {
+    await publishAs(alice, 'old', [...SITE, { name: 'thumbnail.png', data: 'png' }]);
+    const before = world.pages.get('old');
+    world.notices.length = 0;
+    world.invalidations.length = 0;
+
+    const result = await renamePage(world.deps, alice, 'old', 'new');
+    expect(result.url).toBe('https://public.example.invalid/new/');
+    expect(pageKeys('old')).toEqual([]);
+    expect(pageKeys('new')).toEqual(['new/index.html', 'new/style.css', 'new/thumbnail.png']);
+    expect(world.siteFiles.get('new/style.css')).toEqual({
+      body: Buffer.from('body{}'),
+      contentType: 'text/css; charset=utf-8',
+    });
+    expect(world.pages.has('old')).toBe(false);
+    expect(world.pages.get('new')).toEqual({ ...before, name: 'new' });
+    expect(world.siteFiles.get('index.html')?.body.toString()).toContain('href="/new/"');
+    expect(world.invalidations).toEqual([['/old/*', '/new/*', '/index.html', '/']]);
+    expect(world.notices).toEqual([]);
+  });
+
+  it('index.html を最後に写す', async () => {
+    await publishAs(alice, 'old');
+    world.putOrder.length = 0;
+    await renamePage(world.deps, alice, 'old', 'new');
+    expect(world.putOrder.filter((key) => key.startsWith('new/')).at(-1)).toBe('new/index.html');
+  });
+
+  it('リダイレクトのページは移動先を保つ', async () => {
+    await publishRedirect(world.deps, alice, 'old', 'https://example.com/', 'ブログ');
+    await renamePage(world.deps, alice, 'old', 'new');
+    expect(world.pages.get('new')?.redirectUrl).toBe('https://example.com/');
+  });
+
+  it('他の人は変えられず、Admin は変えられて、公開した人は変わらない', async () => {
+    await publishAs(alice, 'old');
+    expect((await errorOf(renamePage(world.deps, bob, 'old', 'new'))).status).toBe(403);
+    expect(world.pages.has('old')).toBe(true);
+    await renamePage(world.deps, admin, 'old', 'new');
+    expect(world.pages.get('new')?.owner).toBe('alice');
+  });
+
+  it('新しい名前のページが既にあれば 409 にし、どちらも変えない', async () => {
+    await publishAs(alice, 'old');
+    await publishAs(bob, 'taken', [{ name: 'index.html', data: 'bob' }]);
+    const error = await errorOf(renamePage(world.deps, alice, 'old', 'taken'));
+    expect(error.status).toBe(409);
+    expect(world.siteFiles.get('taken/index.html')?.body.toString()).toBe('bob');
+    expect(pageKeys('old')).toEqual(['old/index.html', 'old/style.css']);
+  });
+
+  it('読んだ後に上書きされていたら 409 にし、名前を変えない', async () => {
+    await publishAs(alice, 'old');
+    const get = world.deps.pages.get;
+    world.deps.pages.get = async (name) => {
+      const page = await get(name);
+      if (page && name === 'old') world.pages.set('old', { ...page, updatedAt: '2026-12-01' });
+      return page;
+    };
+    expect((await errorOf(renamePage(world.deps, alice, 'old', 'new'))).code).toBe(
+      'rename_conflict',
+    );
+    expect(world.pages.has('new')).toBe(false);
+    expect(pageKeys('new')).toEqual([]);
+  });
+
+  it('写す途中で失敗したら、名前を戻し、写したファイルを消す', async () => {
+    await publishAs(alice, 'old');
+    world.failSiteFilePut.key = 'new/index.html';
+    await expect(renamePage(world.deps, alice, 'old', 'new')).rejects.toThrow('S3 に書けません');
+    expect(world.pages.has('new')).toBe(false);
+    expect(world.pages.get('old')?.owner).toBe('alice');
+    expect(pageKeys('new')).toEqual([]);
+    expect(pageKeys('old')).toEqual(['old/index.html', 'old/style.css']);
+  });
+
+  it.each([
+    ['同じ名前', 'old', 'old', 400],
+    ['無いページ', 'none', 'new', 404],
+    ['不正な新しい名前', 'old', 'New_Name', 400],
+    ['不正な今の名前', '../old', 'new', 400],
+  ])('%s は %s → %s で %i にする', async (_label, from, to, status) => {
+    await publishAs(alice, 'old');
+    expect((await errorOf(renamePage(world.deps, alice, from, to))).status).toBe(status);
+    expect(world.pages.has('old')).toBe(true);
   });
 });
 
