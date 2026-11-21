@@ -52,5 +52,5 @@ export async function publishZip(
     mimeType: 'application/zip',
     buffer: buildZip(entries),
   });
-  await page.getByRole('button', { name: '公開する' }).click();
+  await page.locator('#publish-button').click();
 }

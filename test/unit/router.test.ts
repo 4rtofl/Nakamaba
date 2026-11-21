@@ -299,6 +299,47 @@ describe('ページの API', () => {
     },
   );
 
+  it('リダイレクトのページを公開でき、一覧に移動先が出る', async () => {
+    const created = await send('PUT', '/api/pages/jump/redirect', {
+      body: { url: 'https://example.com', title: 'ブログ' },
+    });
+    expect(created.status).toBe(201);
+    expect(bodyOf(created).url).toBe('https://public.example.invalid/jump/');
+    const again = await send('PUT', '/api/pages/jump/redirect', {
+      body: { url: 'https://example.org' },
+    });
+    expect(again.status).toBe(200);
+    const [page] = bodyOf(await send('GET', '/api/pages')).pages;
+    expect(page).toMatchObject({
+      name: 'jump',
+      title: 'jump',
+      redirectUrl: 'https://example.org/',
+    });
+  });
+
+  it.each([
+    ['URL が無い', {}],
+    ['javascript: の URL', { url: 'javascript:alert(1)' }],
+    ['タイトルが数値', { url: 'https://example.com', title: 1 }],
+  ])('リダイレクトの本文: %s は 400 にし、何も変えない', async (_label, body) => {
+    const response = await send('PUT', '/api/pages/jump/redirect', { body });
+    expect(response.status).toBe(400);
+    expect(world.pages.has('jump')).toBe(false);
+  });
+
+  it('リダイレクトのページは、他の人のページ名では 409 にする', async () => {
+    await publish('alice', 'p');
+    const response = await send('PUT', '/api/pages/p/redirect', {
+      as: 'bob',
+      body: { url: 'https://example.com' },
+    });
+    expect(response.status).toBe(409);
+  });
+
+  it.each(['GET', 'DELETE'])('%s /api/pages/p/redirect は 405 にする', async (method) => {
+    expect((await send(method, '/api/pages/p/redirect')).status).toBe(405);
+  });
+
   it('エンコードされたスラッシュでページ名を偽れない', async () => {
     const response = await send('PUT', '/api/pages/..%2Fetc', {
       body: { uploadId: TEST_UPLOAD_ID },
@@ -456,6 +497,7 @@ describe('エージェント用のトークン', () => {
     ['GET', '/api/tokens'],
     ['PUT', '/api/tokens'],
     ['DELETE', '/api/tokens/x'],
+    ['PUT', '/api/pages/p/redirect'],
     ['PUT', '/api/pages/p/unknown'],
     ['GET', '/api/unknown'],
   ])('トークンでは %s %s を 403 にし、何も変えない', async (method, path) => {

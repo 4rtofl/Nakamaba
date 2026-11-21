@@ -84,6 +84,7 @@ describe('PageStore（DynamoDB の条件付き書き込み）', () => {
     hasThumbnail: false,
     now: '2026-11-01T00:00:00.000Z',
     tokenLabel: null,
+    redirectUrl: null,
     ...overrides,
   });
 
@@ -96,6 +97,20 @@ describe('PageStore（DynamoDB の条件付き書き込み）', () => {
     const again = await store.claim(claim({ name: 'by-token', now: '2026-12-01T00:00:00.000Z' }));
     expect(again.claimed && again.page).not.toHaveProperty('updatedWithToken');
     expect(await store.get('by-token')).not.toHaveProperty('updatedWithToken');
+  });
+
+  it('移動先の URL を記録し、zip で上書きすると消す', async () => {
+    const store = createPageStore(documents, config.pagesTable);
+    const url = 'https://example.com/';
+    const result = await store.claim(claim({ name: 'jump', redirectUrl: url }));
+    expect(result).toMatchObject({ claimed: true, page: { redirectUrl: url } });
+    await expect(store.get('jump')).resolves.toMatchObject({ redirectUrl: url });
+
+    const again = await store.claim(
+      claim({ name: 'jump', tokenLabel: 'Bobert', now: '2026-12-01T00:00:00.000Z' }),
+    );
+    expect(again.claimed && again.page).not.toHaveProperty('redirectUrl');
+    expect(await store.get('jump')).not.toHaveProperty('redirectUrl');
   });
 
   it('新規なら isNew で、公開した人と作成日を記録する', async () => {

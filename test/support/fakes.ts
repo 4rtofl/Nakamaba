@@ -80,6 +80,7 @@ export function createFakeWorld(overrides: Partial<Deps> = {}): FakeWorld {
           createdAt: previous?.createdAt ?? claim.now,
           updatedAt: claim.now,
           ...(claim.tokenLabel === null ? {} : { updatedWithToken: claim.tokenLabel }),
+          ...(claim.redirectUrl === null ? {} : { redirectUrl: claim.redirectUrl }),
         };
         pages.set(claim.name, page);
         return { claimed: true, page, isNew: previous === undefined };

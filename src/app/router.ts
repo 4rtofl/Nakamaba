@@ -9,7 +9,8 @@ import {
   json,
   respond,
 } from './http.ts';
-import { createUpload, deletePage, publishPage, usedBytes } from './publish.ts';
+import { createUpload, deletePage, publishPage, publishRedirect, usedBytes } from './publish.ts';
+import { parseRedirectTitle, parseRedirectUrl } from './redirect-page.ts';
 import { issueToken, listTokens, revokeToken } from './tokens.ts';
 import {
   createUser,
@@ -97,6 +98,19 @@ async function routePages(
   if (action === 'upload') {
     if (request.method !== 'PUT') throw methodNotAllowed('PUT');
     return json(200, await createUpload(deps, user, name));
+  }
+  // TOKEN_ROUTES に無いので、トークンでは使えない
+  if (action === 'redirect') {
+    if (request.method !== 'PUT') throw methodNotAllowed('PUT');
+    const body = parseJsonBody(request.body);
+    const result = await publishRedirect(
+      deps,
+      user,
+      name,
+      parseRedirectUrl(body.url),
+      parseRedirectTitle(body.title, name),
+    );
+    return json(result.isNew ? 201 : 200, result);
   }
   if (action !== undefined) throw notFound();
 

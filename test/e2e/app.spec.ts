@@ -172,6 +172,31 @@ test('公開側のトップにカードの一覧が出る', async ({ browser }) 
   await context.close();
 });
 
+test('管理画面からリダイレクトのページを公開でき、開くと移動先へ移り、戻るとその前のページに戻る', async ({
+  browser,
+}) => {
+  const { publicOrigin } = devState();
+  const target = `${publicOrigin}/cats/`;
+  await alicePage.locator('#redirect-name').fill('to-cats');
+  await alicePage.locator('#redirect-url').fill(target);
+  await alicePage.locator('#redirect-title').fill('猫へ');
+  await alicePage.locator('#redirect-button').click();
+  await expect(alicePage.locator('#status')).toContainText('公開しました');
+  await expect(alicePage.locator('[data-page="to-cats"]')).toContainText(`→ ${target}`);
+
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(publicOrigin);
+  await expect(page.locator(`a.card[href="${target}"]`)).toContainText('猫へ');
+
+  await page.goto(`${publicOrigin}/to-cats`);
+  await expect(page.locator('#h')).toHaveText('猫');
+  // 移動用のページは履歴に残らない
+  await page.goBack();
+  expect(new URL(page.url()).pathname).toBe('/');
+  await context.close();
+});
+
 test('公開側と管理画面でアイコンを取得できる', async ({ browser }) => {
   const { adminOrigin, publicOrigin } = devState();
   const context = await browser.newContext();

@@ -29,6 +29,13 @@ describe('renderTopPage', () => {
     expect(html).toContain('1 ページ');
   });
 
+  it('リダイレクトのページは、移動先へ直接つなぎ、移動先のホスト名を出す', () => {
+    const html = renderTopPage([page({ redirectUrl: 'https://example.com/a?b=1&c=2' })]);
+    expect(html).toContain('href="https://example.com/a?b=1&amp;c=2"');
+    expect(html).not.toContain('href="/my-page/"');
+    expect(html).toContain('alice ・ example.com ↗ ・ ');
+  });
+
   it('並べ替えに使う作成日と更新日を、カードに両方持たせる', () => {
     const html = renderTopPage([page({ createdAt: '2026-09-01T00:00:00.000Z' })]);
     expect(html).toContain(

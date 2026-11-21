@@ -16,6 +16,8 @@ export interface Page {
   updatedAt: string;
   /** 最後の公開・更新に使ったエージェント用のトークンの名前。パスワードで公開・更新したときは無い */
   updatedWithToken?: string;
+  /** 別のサイトへ移動させるページの、移動先の URL。zip で公開したページには無い */
+  redirectUrl?: string;
 }
 
 /** エージェント用のトークン。本物の値は保存せず、ハッシュだけを持つ */
@@ -52,6 +54,8 @@ export interface PageClaim {
   now: string;
   /** トークンで公開・更新するときのトークンの名前。パスワードなら null */
   tokenLabel: string | null;
+  /** 別のサイトへ移動させるページなら移動先の URL。zip で公開するなら null */
+  redirectUrl: string | null;
 }
 
 export type PageClaimResult = { claimed: false } | { claimed: true; page: Page; isNew: boolean };

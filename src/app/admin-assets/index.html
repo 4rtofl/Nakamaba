@@ -67,6 +67,28 @@
         </form>
       </section>
 
+      <section class="panel" aria-labelledby="redirect-heading">
+        <h2 id="redirect-heading">リダイレクトのページを公開</h2>
+        <p class="hint">
+          ページを開いた人を、別のサイトへ移動させます。公開側の一覧のカードは、移動先へ直接つながります。同じ名前で公開すると上書きします。
+        </p>
+        <form id="redirect-form" class="form">
+          <label>
+            <span>ページ名（英小文字・数字・ハイフン）</span>
+            <input id="redirect-name" name="name" required maxlength="63" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>
+            <span>移動先の URL</span>
+            <input id="redirect-url" name="url" type="url" required maxlength="2000" placeholder="https://example.com/" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>
+            <span>タイトル（空ならページ名）</span>
+            <input id="redirect-title" name="title" maxlength="200" autocomplete="off" />
+          </label>
+          <button class="primary" type="submit" id="redirect-button">公開する</button>
+        </form>
+      </section>
+
       <section class="panel" aria-labelledby="pages-heading">
         <h2 id="pages-heading">公開中のページ</h2>
         <div id="pages" class="rows"></div>

@@ -2,7 +2,13 @@ import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { User } from '../../src/app/deps.ts';
 import { HttpError } from '../../src/app/http.ts';
-import { createUpload, deletePage, publishPage, writeStaticPages } from '../../src/app/publish.ts';
+import {
+  createUpload,
+  deletePage,
+  publishPage,
+  publishRedirect,
+  writeStaticPages,
+} from '../../src/app/publish.ts';
 import { createFakeWorld, type FakeWorld, TEST_UPLOAD_ID } from '../support/fakes.ts';
 import { buildZip, type ZipEntryInput } from '../support/zip-builder.ts';
 
@@ -231,6 +237,67 @@ describe('publishPage の新規公開', () => {
     ]);
     const pageKeys = world.putOrder.filter((key) => key.startsWith('my-page/'));
     expect(pageKeys.at(-1)).toBe('my-page/index.html');
+  });
+});
+
+describe('publishRedirect', () => {
+  const TARGET = 'https://example.com/';
+  const redirectAs = (user: User, name: string, url = TARGET, title = 'ブログ') =>
+    publishRedirect(world.deps, user, name, url, title);
+
+  it('移動用の index.html を置き、移動先を記録して、Discord へ通知する', async () => {
+    const result = await redirectAs(alice, 'jump');
+    expect(result).toMatchObject({ isNew: true, url: 'https://public.example.invalid/jump/' });
+    const index = world.siteFiles.get('jump/index.html');
+    expect(index?.contentType).toContain('text/html');
+    expect(index?.body.toString()).toContain('url=https://example.com/');
+    expect(world.pages.get('jump')).toMatchObject({
+      owner: 'alice',
+      title: 'ブログ',
+      redirectUrl: TARGET,
+    });
+    expect(world.siteFiles.get('index.html')?.body.toString()).toContain(
+      'href="https://example.com/"',
+    );
+    expect(world.invalidations).toEqual([['/jump/*', '/index.html', '/']]);
+    expect(world.notices).toEqual([
+      { title: 'ブログ', owner: 'alice', url: 'https://public.example.invalid/jump/' },
+    ]);
+  });
+
+  it('zip のページを置き換えると、ほかのファイルとサムネイルの記録を消す', async () => {
+    await publishAs(alice, 'my-page', [...SITE, { name: 'thumbnail.png', data: 'png' }]);
+    await redirectAs(alice, 'my-page');
+    expect([...world.siteFiles.keys()].filter((key) => key.startsWith('my-page/'))).toEqual([
+      'my-page/index.html',
+    ]);
+    expect(world.pages.get('my-page')).toMatchObject({ hasThumbnail: false, redirectUrl: TARGET });
+  });
+
+  it('zip で上書きすると、移動先の記録を消す', async () => {
+    await redirectAs(alice, 'jump');
+    await publishAs(alice, 'jump');
+    expect(world.pages.get('jump')).not.toHaveProperty('redirectUrl');
+    expect(world.siteFiles.get('jump/index.html')?.body.toString()).toBe(
+      '<title>僕のページ</title>',
+    );
+  });
+
+  it('他の人のページ名では公開できず、中身も変わらない', async () => {
+    await publishAs(alice, 'my-page');
+    expect((await errorOf(redirectAs(bob, 'my-page'))).status).toBe(409);
+    expect(world.pages.get('my-page')).not.toHaveProperty('redirectUrl');
+    expect(world.siteFiles.has('my-page/style.css')).toBe(true);
+  });
+
+  it('Admin は置き換えられ、公開した人は変わらない', async () => {
+    await publishAs(alice, 'my-page');
+    await redirectAs(admin, 'my-page');
+    expect(world.pages.get('my-page')).toMatchObject({ owner: 'alice', redirectUrl: TARGET });
+  });
+
+  it('不正なページ名を拒否する', async () => {
+    expect((await errorOf(redirectAs(alice, '../x'))).code).toBe('invalid_name');
   });
 });
 

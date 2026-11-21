@@ -155,6 +155,7 @@ function renderPages(pages) {
               page.owner,
               formatDate(page.updatedAt),
               ...(page.updatedWithToken ? [`トークン「${page.updatedWithToken}」で更新`] : []),
+              ...(page.redirectUrl ? [`→ ${page.redirectUrl}`] : []),
             ].join(' ・ '),
           }),
         ),
@@ -398,6 +399,28 @@ $('publish-form').addEventListener('submit', async (event) => {
   showStatus('公開しています…');
   try {
     const result = await publish($('page-name').value, $('page-zip').files[0]);
+    showStatus(`公開しました: ${result.url}`);
+    form.reset();
+    await refreshPages();
+  } catch (error) {
+    showStatus(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$('redirect-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const button = $('redirect-button');
+  const form = event.currentTarget;
+  button.disabled = true;
+  showStatus('公開しています…');
+  try {
+    const result = await api(
+      'PUT',
+      `/api/pages/${encodeURIComponent($('redirect-name').value)}/redirect`,
+      { url: $('redirect-url').value, title: $('redirect-title').value },
+    );
     showStatus(`公開しました: ${result.url}`);
     form.reset();
     await refreshPages();

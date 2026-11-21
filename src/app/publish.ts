@@ -1,8 +1,9 @@
 import { SITE_ICONS } from './admin-page.ts';
-import type { Deps, Page, PresignedUpload, User } from './deps.ts';
+import type { Deps, OutputFile, Page, PageClaimResult, PresignedUpload, User } from './deps.ts';
 import { HttpError } from './http.ts';
 import { assertValidName } from './names.ts';
 import { buildPage } from './page-content.ts';
+import { renderRedirectPage } from './redirect-page.ts';
 import { renderNotFoundPage, renderTopPage } from './top-page.ts';
 import { extractZip } from './zip.ts';
 
@@ -133,19 +134,63 @@ export async function publishPage(
     hasThumbnail: built.hasThumbnail,
     now: deps.now().toISOString(),
     tokenLabel,
+    redirectUrl: null,
   });
   if (!claim.claimed) throw nameTaken();
 
+  const result = await placePage(deps, pageName, built.files, claim);
+  await deps.uploads.delete(key);
+  return result;
+}
+
+/** 開いた人を redirectUrl へ移動させるページを公開する。同じ名前のページがあれば置き換える */
+export async function publishRedirect(
+  deps: Deps,
+  user: User,
+  pageName: string,
+  redirectUrl: string,
+  title: string,
+): Promise<{ page: Page; url: string; isNew: boolean }> {
+  assertValidName(pageName);
+  if (!canModify(user, await deps.pages.get(pageName))) throw nameTaken();
+
+  const claim = await deps.pages.claim({
+    name: pageName,
+    actor: user.name,
+    overrideOwner: user.role === 'admin',
+    title,
+    hasThumbnail: false,
+    now: deps.now().toISOString(),
+    tokenLabel: null,
+    redirectUrl,
+  });
+  if (!claim.claimed) throw nameTaken();
+
+  const index: OutputFile = {
+    path: 'index.html',
+    body: Buffer.from(renderRedirectPage(redirectUrl, title), 'utf8'),
+    contentType: HTML,
+  };
+  return placePage(deps, pageName, [index], claim);
+}
+
+/** ページのファイルを置き直し、トップを作り直して通知する。新規公開で置けなければ名前を解放する */
+async function placePage(
+  deps: Deps,
+  pageName: string,
+  files: OutputFile[],
+  claim: Extract<PageClaimResult, { claimed: true }>,
+): Promise<{ page: Page; url: string; isNew: boolean }> {
   const prefix = `${pageName}/`;
   try {
     // 開いている人が壊れたページを見ないよう、index.html は最後に差し替える
-    const ordered = [...built.files].sort(
+    const ordered = [...files].sort(
       (a, b) => Number(a.path === 'index.html') - Number(b.path === 'index.html'),
     );
     for (const file of ordered) {
       await deps.siteFiles.put(`${prefix}${file.path}`, file.body, file.contentType);
     }
-    const current = new Set(built.files.map((file) => `${prefix}${file.path}`));
+    const current = new Set(files.map((file) => `${prefix}${file.path}`));
     const existing = await deps.siteFiles.list(prefix);
     await deps.siteFiles.delete(existing.filter((existingKey) => !current.has(existingKey)));
   } catch (error) {
@@ -155,7 +200,6 @@ export async function publishPage(
 
   await writeStaticPages(deps);
   await deps.cdn.invalidate([`/${pageName}/*`, '/index.html', '/']);
-  await deps.uploads.delete(key);
 
   const url = pageUrl(deps, pageName);
   if (claim.isNew) {

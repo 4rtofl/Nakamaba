@@ -146,13 +146,26 @@ export function createPageStore(documents: DynamoDBDocumentClient, tableName: st
     },
     list: () => scanAll<Page>(documents, tableName),
     async claim(claim): Promise<PageClaimResult> {
+      const sets = [
+        '#owner = if_not_exists(#owner, :actor)',
+        'createdAt = if_not_exists(createdAt, :now)',
+        'title = :title',
+        'hasThumbnail = :thumbnail',
+        'updatedAt = :now',
+      ];
+      const removes: string[] = [];
+      // パスワードで公開・更新したら、前にトークンで更新した記録を消す
+      if (claim.tokenLabel === null) removes.push('updatedWithToken');
+      else sets.push('updatedWithToken = :token');
+      // zip で上書きしたら、移動先の URL を消す
+      if (claim.redirectUrl === null) removes.push('redirectUrl');
+      else sets.push('redirectUrl = :redirect');
       try {
         const result = await documents.send(
           new UpdateCommand({
             TableName: tableName,
             Key: { name: claim.name },
-            // パスワードで公開・更新したら、前にトークンで更新した記録を消す
-            UpdateExpression: `SET #owner = if_not_exists(#owner, :actor), createdAt = if_not_exists(createdAt, :now), title = :title, hasThumbnail = :thumbnail, updatedAt = :now${claim.tokenLabel === null ? ' REMOVE updatedWithToken' : ', updatedWithToken = :token'}`,
+            UpdateExpression: `SET ${sets.join(', ')}${removes.length > 0 ? ` REMOVE ${removes.join(', ')}` : ''}`,
             ...(claim.overrideOwner
               ? {}
               : { ConditionExpression: 'attribute_not_exists(#owner) OR #owner = :actor' }),
@@ -163,6 +176,7 @@ export function createPageStore(documents: DynamoDBDocumentClient, tableName: st
               ':title': claim.title,
               ':thumbnail': claim.hasThumbnail,
               ...(claim.tokenLabel === null ? {} : { ':token': claim.tokenLabel }),
+              ...(claim.redirectUrl === null ? {} : { ':redirect': claim.redirectUrl }),
             },
             ReturnValues: 'ALL_OLD',
           }),
@@ -179,6 +193,7 @@ export function createPageStore(documents: DynamoDBDocumentClient, tableName: st
             createdAt: previous?.createdAt ?? claim.now,
             updatedAt: claim.now,
             ...(claim.tokenLabel === null ? {} : { updatedWithToken: claim.tokenLabel }),
+            ...(claim.redirectUrl === null ? {} : { redirectUrl: claim.redirectUrl }),
           },
         };
       } catch (error) {
